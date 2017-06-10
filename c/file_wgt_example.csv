@@ -1,0 +1,8 @@
+# This is an example list of prediction and weight.
+# Leading lines with "#" will be treated as comments and skipped.
+# The file and weight should be separated by ",".
+# ensemble is multi-thread for at least four predictions.
+../byModelPred/ensemble/GRU_fold01234_cp82cp94k96kcp98k100k_meanvalue_k20.csv,0.29
+../byModelPred/ensemble/lstmpairs_fold01234_cp90k95k100k105110k_meanvalue_k20.csv,0.06
+../byModelPred/ensemble/dbof11k_5folds_cp90k93k95k99k104k85k.csv,0.09
+../byModelPred/ensemble/MoNN3Lw_combo_5folds_CPS40k_60k_20files.csv,0.20

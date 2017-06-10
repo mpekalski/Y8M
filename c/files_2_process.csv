@@ -1,0 +1,8 @@
+../byModelPred/ensemble/GRU_fold01234_cp82cp94k96kcp98k100k_meanvalue_k20.csv,1.0
+../byModelPred/ensemble/lstmpairs_2runs_cp115k125k135k_meanvalue_k20.csv,1.0
+../byModelPred/ensemble/lstmpairs_fold01234_cp90k95k100k105k110k_meanvalue_k20.csv,1.0
+../byModelPred/ensemble/dbof11k_5folds_cp90k93k95k99k104k85k.csv,1.0
+../byModelPred/ensemble/MoNN3Lw_combo_5folds_CPS40k_60k_20files.csv,1.0
+../byModelPred/ensemble/MoNN2Lw_combo_5folds_CPS40k50k60k.csv,1.0
+../byModelPred/ensemble/MoNN3L_16_comb.csv,1.0
+../byModelPred/ensemble/MoNN4Ln_combo_5folds_CPS40k_80k_20files.csv,1.0
