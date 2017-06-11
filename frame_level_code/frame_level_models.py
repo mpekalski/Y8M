@@ -321,3 +321,325 @@ class Lstmbidirect(models.BaseModel):
         model_input=state[-1].c,
         vocab_size=vocab_size,
         **unused_params)
+
+
+class LstmModelPair(models.BaseModel):
+    def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+        """aggregation model that feeds frames alternatingly into two two layer LSTMs.
+
+        Args:
+          model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                       input features.
+          vocab_size: The number of classes in the dataset.
+          num_frames: A vector of length 'batch' which indicates the number of
+               frames for each video (before padding).
+
+        Returns:
+          A dictionary with a tensor containing the probability predictions of the
+          model in the 'predictions' key. The dimensions of the tensor are
+          'batch_size' x 'num_classes'.
+        """
+        lstm_size = FLAGS.lstm_cells
+        number_of_layers = FLAGS.lstm_layers
+
+        loss = 0.0
+
+        # PART1 frame processing:
+        framein1 = model_input[:, ::2]
+
+        stacked_lstm1 = tf.contrib.rnn.MultiRNNCell(
+            [
+                tf.contrib.rnn.BasicLSTMCell(
+                    lstm_size, forget_bias=1.0, state_is_tuple=False)
+                for _ in range(number_of_layers)
+                ], state_is_tuple=False)
+        with tf.variable_scope('pass1'):
+            outputs1, state1 = tf.nn.dynamic_rnn(stacked_lstm1, framein1,
+                                                 sequence_length=num_frames / 2,
+                                                 dtype=tf.float32)
+        # PART2 average_pooling
+        framein2 = model_input[:, 1::2]
+
+        stacked_lstm2 = tf.contrib.rnn.MultiRNNCell(
+            [
+                tf.contrib.rnn.BasicLSTMCell(
+                    lstm_size, forget_bias=1.0, state_is_tuple=False)
+                for _ in range(number_of_layers)
+                ], state_is_tuple=False)
+
+        with tf.variable_scope('pass2'):
+            outputs2, state2 = tf.nn.dynamic_rnn(stacked_lstm2, framein2,
+                                                 sequence_length=num_frames / 2,
+                                                 dtype=tf.float32)
+        state = (state1 + state2) / 2
+
+        aggregated_model = getattr(video_level_models,
+                                   FLAGS.video_level_classifier_model)
+
+        return aggregated_model().create_model(
+            model_input=state,
+            vocab_size=vocab_size,
+            **unused_params)
+
+
+class CNN_4xMeanMax_1312OUT(models.BaseModel):
+
+  def create_model(self,
+                   model_input,
+                   vocab_size,
+                   num_frames,
+                   layers_keep_probs,
+                   **unused_params):
+    """A 1D convolution neural network model
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+
+    # iterations = FLAGS.iterations
+    num_frames = tf.cast(tf.expand_dims(num_frames, 1), tf.float32)
+    conv_out_dim=164
+
+    # # # # # # # # #
+    # Mean Pooling  #
+    # # # # # # # # #
+
+    # 1 kernal size X 1st frame, stride 1
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 20)
+    with tf.variable_scope('mean1x1x1'):
+        kernel = tf.get_variable('ConVweights', [1, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 1, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32, tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        meanconv1x1_s1 = tf.reduce_mean(activ, axis=(1,), name="Reduction")
+
+    # 5x kernal size, 3rd frame, stride 2
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 33)[:, ::3]
+    with tf.variable_scope('mean5x3x2'):
+        kernel = tf.get_variable('ConVweights', [5, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 2, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        meanconv5x3_s2 = tf.reduce_mean(activ, axis=(1,), name="Reduction")
+
+    # 3x kernal size, 5th frame, stride 1
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 50)[:, ::5]
+    with tf.variable_scope('mean3x5x1'):
+        kernel = tf.get_variable('ConVweights', [3, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 1, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        meanconv3x5_s1 = tf.reduce_mean(activ, axis=(1,), name="Reduction")
+
+
+    # 5x kernal size, 1st frame, stride 3
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 20)
+    with tf.variable_scope('mean5x1x3'):
+        kernel = tf.get_variable('ConVweights', [5, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 3, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        meanconv5x1_s3 = tf.reduce_mean(activ, axis=(1,), name="Reduction")
+
+    # # # # # # # #
+    # Max Pooling #
+    # # # # # # # #
+    # 1 kernal size X 1st frame, stride 1
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 20)
+    with tf.variable_scope('max1x1x1'):
+        kernel = tf.get_variable('ConVweights', [1, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 1, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        maxconv1x1_s1 = tf.reduce_max(activ, axis=(1,), name="Reduction")
+
+    # 5x kernal size, 3rd frame, stride 2
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 33)[:, ::3]
+    with tf.variable_scope('max5x3x2'):
+        kernel = tf.get_variable('ConVweights', [5, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 2, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        maxconv5x3_s2 = tf.reduce_max(activ, axis=(1,), name="Reduction")
+
+    # 3x kernal size, 5th frame, stride 1
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 50)[:, ::5]
+    with tf.variable_scope('max3x5x1'):
+        kernel = tf.get_variable('ConVweights', [3, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 1, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        maxconv3x5_s1 = tf.reduce_max(activ, axis=(1,), name="Reduction")
+
+    # 5x kernal size, 1st frame, stride 3
+    conv_input = utils.SampleRandomSequence(model_input, num_frames, 20)
+    with tf.variable_scope('max5x1x3'):
+        kernel = tf.get_variable('ConVweights', [5, conv_input.get_shape().as_list()[2], conv_out_dim],
+                                 tf.float32, tf.truncated_normal_initializer(stddev=0.1))
+        conv = tf.nn.conv1d(conv_input, kernel, 3, padding='VALID')
+        biases = tf.get_variable('ConVBias', conv_out_dim, tf.float32,
+                                 tf.constant_initializer(0.1, dtype=tf.float32))
+        bias = tf.nn.bias_add(conv, biases)
+        activ = tf.nn.relu(bias, name='FrameConv')
+        maxconv5x1_s3 = tf.reduce_max(activ, axis=(1,), name="Reduction")
+
+    aggregation = tf.concat([meanconv1x1_s1, meanconv5x3_s2, meanconv3x5_s1, meanconv5x1_s3,
+                             maxconv1x1_s1, maxconv5x3_s2, maxconv3x5_s1, maxconv5x1_s3], axis=1)
+
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+
+    return aggregated_model().create_model(
+        model_input=aggregation,
+        vocab_size=vocab_size,
+        **unused_params)
+
+
+class GRU_DBoF_hybrid(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames,
+                   iterations=None,
+                   add_batch_norm=None,
+                   sample_random_frames=None,
+                   cluster_size=None,
+                   hidden_size=None,
+                   is_training=True,
+                   **unused_params):
+    """
+    A hybrid GRU/DBoF model.
+    """
+
+    ############
+    # GRU Part #
+    ############
+
+    lstm_size = FLAGS.lstm_cells
+    number_of_layers = FLAGS.lstm_layers
+
+    gru_fw = tf.contrib.rnn.GRUCell(lstm_size/2)
+    gru_bw = tf.contrib.rnn.GRUCell(lstm_size/2)
+
+    stacked_lstm_fw = tf.contrib.rnn.MultiRNNCell([gru_fw])
+    stacked_lstm_bw = tf.contrib.rnn.MultiRNNCell([gru_bw])
+
+    outputs1, state1 = tf.nn.bidirectional_dynamic_rnn(stacked_lstm_fw, stacked_lstm_bw,
+                                                     model_input, sequence_length=num_frames, dtype=tf.float32)
+
+    stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.GRUCell(lstm_size)])
+
+    outputs, state = tf.nn.dynamic_rnn(stacked_lstm, tf.concat(outputs1, axis=2),
+                                       sequence_length=num_frames,
+                                       dtype=tf.float32)
+
+    out1 = state[-1]
+
+    #############
+    # Dbof Part #
+    #############
+
+    iterations = iterations or FLAGS.iterations
+    add_batch_norm = add_batch_norm or FLAGS.dbof_add_batch_norm
+    random_frames = sample_random_frames or FLAGS.sample_random_frames
+    cluster_size = cluster_size or FLAGS.dbof_cluster_size
+    hidden1_size = hidden_size or FLAGS.dbof_hidden_size
+
+    num_frames = tf.cast(tf.expand_dims(num_frames, 1), tf.float32)
+    if random_frames:
+      model_input = utils.SampleRandomFrames(model_input, num_frames,
+                                             iterations)
+    else:
+      model_input = utils.SampleRandomSequence(model_input, num_frames,
+                                               iterations)
+    max_frames = model_input.get_shape().as_list()[1]
+    feature_size = model_input.get_shape().as_list()[2]
+    reshaped_input = tf.reshape(model_input, [-1, feature_size])
+    tf.summary.histogram("input_hist", reshaped_input)
+
+    if add_batch_norm:
+      reshaped_input = slim.batch_norm(
+          reshaped_input,
+          center=True,
+          scale=True,
+          is_training=is_training,
+          scope="input_bn")
+
+    cluster_weights = tf.get_variable("cluster_weights",
+      [feature_size, cluster_size],
+      initializer = tf.random_normal_initializer(stddev=1 / math.sqrt(feature_size)))
+    tf.summary.histogram("cluster_weights", cluster_weights)
+    activation = tf.matmul(reshaped_input, cluster_weights)
+    if add_batch_norm:
+      activation = slim.batch_norm(
+          activation,
+          center=True,
+          scale=True,
+          is_training=is_training,
+          scope="cluster_bn")
+    else:
+      cluster_biases = tf.get_variable("cluster_biases",
+        [cluster_size],
+        initializer = tf.random_normal(stddev=1 / math.sqrt(feature_size)))
+      tf.summary.histogram("cluster_biases", cluster_biases)
+      activation += cluster_biases
+    activation = tf.nn.relu6(activation)
+    tf.summary.histogram("cluster_output", activation)
+
+    activation = tf.reshape(activation, [-1, max_frames, cluster_size])
+    activation = utils.FramePooling(activation, FLAGS.dbof_pooling_method)
+
+    hidden1_weights = tf.get_variable("hidden1_weights",
+      [cluster_size, hidden1_size],
+      initializer=tf.random_normal_initializer(stddev=1 / math.sqrt(cluster_size)))
+    tf.summary.histogram("hidden1_weights", hidden1_weights)
+    activation = tf.matmul(activation, hidden1_weights)
+    if add_batch_norm:
+      activation = slim.batch_norm(
+          activation,
+          center=True,
+          scale=True,
+          is_training=is_training,
+          scope="hidden1_bn")
+    else:
+      hidden1_biases = tf.get_variable("hidden1_biases",
+        [hidden1_size],
+        initializer = tf.random_normal_initializer(stddev=0.01))
+      tf.summary.histogram("hidden1_biases", hidden1_biases)
+      activation += hidden1_biases
+    activation = tf.nn.relu6(activation)
+    tf.summary.histogram("hidden1_output", activation)
+
+
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+
+    return aggregated_model().create_model(
+        model_input=tf.concat([out1,activation], axis=1),
+        vocab_size=vocab_size,
+        **unused_params)
