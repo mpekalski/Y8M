@@ -76,3 +76,6 @@ This script is used to calculate mean and std. deviation of selected variables. 
 
 ## scripts 
 All *.sh scripts with numbers from 02 to 10 are scripts used for training our video level models we have used in the final submission. Some of them also include inference loops. So predictions are made straight after each fold has finished. This way we could submit partial results and see how the model was performing on the public LB.
+
+## ensemble 
+Script to perform ensemble is located in `../c` This folder contains a sample CSV file, `ofe_ema_monn3lw_f1-f5_ensemble.csv`,  that demonstartes how to perform ensemble using our script. It contains a list of files and weights they should be ensembled with. In this example the paths to files are relative. Assuming all paths to files are correct to use the CSV file simply call `../c/ensemble ofe_ema_monn3lw_f1-f5_ensemble.csv`. After a couple of minutes you should get an output file in `/tmp` folder. You will be notified with the exact path to the output file at the end of the script's execution.
