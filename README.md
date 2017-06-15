@@ -11,3 +11,10 @@ This repository contains three additional subfolders:
 
 `bstnet`, which contains a bit older version of the code that also includes boosting network. So, not all changes we have introduced that are available in this folder are also available in the bstnet. For a sample usage script please refer to the bash script in the bstnet.
 
+To reproduce the final results follow readmes in each of the two *_code folders. Finally, you can ensemble the predictions using addPred from the C folder. Execute: 
+
+```
+./c/addPred ./mypredictionfolder/MoNNs.csv ./mypredictionfolder/LSTMs.csv ./mypredictionfolder/GRUs.csv 0.4 0.36 0.24 /mypredictionfolder/final_prediction.csv
+```
+
+As in the example we used weights of 0.4, 0.36, 0.24 for MoNNs, LSTMs and GRUs, respectively.
